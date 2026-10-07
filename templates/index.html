@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Battery and wire</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101410;
+      --ink: #f6f3ec;
+      --muted: #b7b1a6;
+      --card: rgba(255, 250, 242, 0.045);
+      --line: rgba(255, 248, 236, 0.1);
+      --battery: #ff9a3c;
+      --battery-deep: #c45c12;
+      --wire: #3ee0a0;
+      --wire-deep: #128a58;
+      --invalid: #ff5d6c;
+      --glow: rgba(255, 154, 60, 0);
+      --glow-2: rgba(62, 224, 160, 0);
+      --arc: 339.292;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Outfit, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(900px 520px at 12% -10%, var(--glow), transparent 60%),
+        radial-gradient(820px 480px at 100% 0%, var(--glow-2), transparent 55%),
+        var(--bg);
+      color: var(--ink);
+      transition: background 0.45s ease;
+    }
+    body[data-active="battery"] {
+      --glow: rgba(255, 138, 48, 0.34);
+      --glow-2: rgba(255, 138, 48, 0.08);
+    }
+    body[data-active="wire"] {
+      --glow: rgba(62, 224, 160, 0.08);
+      --glow-2: rgba(62, 224, 160, 0.32);
+    }
+    body[data-active="invalid"] {
+      --glow: rgba(255, 93, 108, 0.16);
+      --glow-2: rgba(255, 93, 108, 0.28);
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 22px 48px;
+    }
+    header.top {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-end;
+      margin-bottom: 22px;
+    }
+    .eyebrow {
+      margin: 0 0 6px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    h1 {
+      margin: 0;
+      font-family: Fraunces, Georgia, serif;
+      font-size: clamp(2rem, 4vw, 3.1rem);
+      font-weight: 560;
+      letter-spacing: -0.03em;
+    }
+    .lede {
+      margin: 8px 0 0;
+      max-width: 46rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      background: var(--card);
+      border-radius: 999px;
+      padding: 8px 12px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #8d887e;
+      box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.2);
+    }
+    body[data-camera="on"] .dot {
+      background: var(--wire);
+      animation: blink 1.8s ease-in-out infinite;
+    }
+    body[data-active="battery"] .dot { background: var(--battery); }
+    body[data-active="wire"] .dot { background: var(--wire); }
+    body[data-active="invalid"] .dot { background: var(--invalid); }
+    .stage {
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr) 230px;
+      gap: 16px;
+      align-items: stretch;
+    }
+    .emblem {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 22px 16px 18px;
+      border-radius: 28px;
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: #8e897f;
+      text-align: center;
+      overflow: hidden;
+      transition: color 0.35s ease, border-color 0.35s ease, transform 0.35s ease, box-shadow 0.35s ease, background 0.35s ease;
+    }
+    .emblem h2 {
+      margin: 8px 0 0;
+      font-family: Fraunces, Georgia, serif;
+      font-size: 1.55rem;
+      font-weight: 560;
+    }
+    .readout {
+      margin: 0;
+      min-height: 1.6rem;
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    .saved-count {
+      margin: 0;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .ring {
+      position: relative;
+      width: 168px;
+      height: 168px;
+    }
+    .meter {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+    }
+    .track, .arc {
+      fill: none;
+      stroke-width: 3;
+    }
+    .track { stroke: rgba(255, 248, 236, 0.08); }
+    .arc {
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-dasharray: var(--arc);
+      stroke-dashoffset: var(--arc);
+      transition: stroke-dashoffset 0.45s ease;
+    }
+    .glyph {
+      position: absolute;
+      inset: 22px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.22);
+    }
+    .glyph svg { width: 78px; height: 78px; }
+    .emblem.battery { --accent: var(--battery); }
+    .emblem.wire { --accent: var(--wire); }
+    .emblem.invalid { --accent: var(--invalid); }
+    .emblem.wide {
+      grid-column: 1 / -1;
+      flex-direction: row;
+      justify-content: flex-start;
+      gap: 18px;
+      padding: 12px 18px;
+      text-align: left;
+    }
+    .emblem.wide .ring { width: 88px; height: 88px; flex: none; }
+    .emblem.wide .glyph { inset: 12px; }
+    .emblem.wide .glyph svg { width: 46px; height: 46px; }
+    .emblem.wide h2 { margin: 0; }
+    .emblem.wide .copy { display: flex; flex-direction: column; align-items: flex-start; }
+    .slash { stroke: currentColor; stroke-width: 5; stroke-linecap: round; }
+    .emblem.invalid.lit .slash { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--invalid) 80%, white)); }
+    .emblem.lit {
+      color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 14%, rgba(255, 250, 242, 0.04));
+      border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+      box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
+        0 18px 50px color-mix(in srgb, var(--accent) 22%, transparent);
+      transform: translateY(-2px);
+    }
+    .emblem.lit .glyph {
+      background:
+        radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 35%, transparent), transparent 68%),
+        rgba(0, 0, 0, 0.2);
+      animation: halo 1.7s ease-out infinite;
+    }
+    .emblem.battery .cell { opacity: 0.16; transition: opacity 0.3s ease; }
+    .emblem.battery.lit .cell.on { opacity: 1; }
+    .emblem.wire .cable {
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 5.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .emblem.wire.lit .cable {
+      stroke-dasharray: 10 8;
+      animation: flow 0.7s linear infinite;
+      filter: drop-shadow(0 0 6px color-mix(in srgb, var(--wire) 80%, white));
+    }
+    .copper { fill: #8a7048; }
+    .emblem.wire.lit .copper { fill: #f0c27a; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      margin-top: 6px;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 0.68rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #1a140c;
+      background: var(--accent);
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+    .emblem.lit .badge { opacity: 1; }
+    .viewport {
+      position: relative;
+      border-radius: 28px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: #070908;
+      min-height: 320px;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+    }
+    body[data-active="battery"] .viewport { border-color: color-mix(in srgb, var(--battery) 55%, transparent); }
+    body[data-active="wire"] .viewport { border-color: color-mix(in srgb, var(--wire) 55%, transparent); }
+    body[data-active="invalid"] .viewport { border-color: color-mix(in srgb, var(--invalid) 65%, transparent); }
+    img.preview {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: contain;
+      display: block;
+      background: #070908;
+    }
+    .hud {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-end;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: rgba(10, 12, 10, 0.72);
+      backdrop-filter: blur(10px);
+    }
+    #status {
+      font-family: Fraunces, Georgia, serif;
+      font-size: 1.45rem;
+      line-height: 1.1;
+    }
+    #detail, #saved, #error {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    #error:empty, #saved:empty, #detail:empty { display: none; }
+    #error { color: #ffb089; }
+    .library {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 16px;
+    }
+    .folder {
+      border: 1px solid var(--line);
+      background: var(--card);
+      border-radius: 22px;
+      padding: 14px;
+    }
+    .folder h3 {
+      margin: 0 0 10px;
+      font-size: 0.95rem;
+      font-weight: 500;
+    }
+    .folder.battery h3 { color: var(--battery); }
+    .folder.wire h3 { color: var(--wire); }
+    ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 10px;
+    }
+    a { color: inherit; text-decoration: none; }
+    img.thumb {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+      border-radius: 10px;
+      display: block;
+      background: #111;
+    }
+    .name {
+      margin-top: 4px;
+      font-size: 0.72rem;
+      color: var(--muted);
+      word-break: break-all;
+    }
+    .empty {
+      grid-column: 1 / -1;
+      border: 1px dashed var(--line);
+      border-radius: 12px;
+      padding: 18px 12px;
+      color: var(--muted);
+      text-align: center;
+    }
+    @keyframes halo {
+      0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+      100% { box-shadow: 0 0 0 16px transparent; }
+    }
+    @keyframes flow { to { stroke-dashoffset: -36; } }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .emblem, .arc, .cell, .badge { transition: none; }
+      .emblem.lit .glyph, .emblem.wire.lit .cable, body[data-camera="on"] .dot { animation: none; }
+    }
+    @media (max-width: 860px) {
+      header.top { flex-direction: column; align-items: flex-start; }
+      .stage { grid-template-columns: 1fr 1fr; }
+      .viewport { grid-column: 1 / -1; order: 3; }
+      .library { grid-template-columns: 1fr; }
+      .emblem { padding: 16px 10px 14px; }
+      .ring { width: 112px; height: 112px; }
+      .glyph { inset: 16px; }
+      .glyph svg { width: 56px; height: 56px; }
+      .emblem h2 { font-size: 1.25rem; }
+    }
+  </style>
+</head>
+<body data-active="" data-camera="off">
+  <main>
+    <header class="top">
+      <div>
+        <p class="eyebrow">Live sort</p>
+        <h1>Battery and wire</h1>
+        <p class="lede">Show an object to the camera. A battery or wire lights its symbol and can be saved. Anything else lights Invalid and is left unsaved.</p>
+      </div>
+      <div class="pill" id="live-pill"><span class="dot"></span><span id="live-label">starting</span></div>
+    </header>
+
+    <section class="stage">
+      <article class="emblem battery" id="emblem-battery">
+        <div class="ring">
+          <svg class="meter" viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="track" cx="60" cy="60" r="54"></circle>
+            <circle class="arc" cx="60" cy="60" r="54"></circle>
+          </svg>
+          <div class="glyph">
+            <svg viewBox="0 0 64 88" aria-hidden="true">
+              <rect x="24" y="3" width="16" height="8" rx="2" fill="currentColor"></rect>
+              <rect x="8" y="13" width="48" height="70" rx="10" fill="none" stroke="currentColor" stroke-width="3.5"></rect>
+              <rect class="cell" data-level="1" x="16" y="58" width="32" height="12" rx="3" fill="currentColor"></rect>
+              <rect class="cell" data-level="2" x="16" y="42" width="32" height="12" rx="3" fill="currentColor"></rect>
+              <rect class="cell" data-level="3" x="16" y="26" width="32" height="12" rx="3" fill="currentColor"></rect>
+            </svg>
+          </div>
+        </div>
+        <h2>Battery</h2>
+        <span class="badge">Found</span>
+        <p class="readout" id="readout-battery">—</p>
+        <p class="saved-count"><span id="count-battery">0</span> saved</p>
+      </article>
+
+      <div class="viewport">
+        <img class="preview" src="/video" alt="Live webcam">
+        <div class="hud">
+          <div>
+            <div id="status">Starting</div>
+            <p id="detail"></p>
+            <p id="saved"></p>
+            <p id="error"></p>
+          </div>
+        </div>
+      </div>
+
+      <article class="emblem wire" id="emblem-wire">
+        <div class="ring">
+          <svg class="meter" viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="track" cx="60" cy="60" r="54"></circle>
+            <circle class="arc" cx="60" cy="60" r="54"></circle>
+          </svg>
+          <div class="glyph">
+            <svg viewBox="0 0 80 80" aria-hidden="true">
+              <path class="cable" d="M12 40a28 16 0 1 1 56 0 28 16 0 1 1-56 0z"></path>
+              <path class="cable" d="M26 40a14 8 0 1 1 28 0 14 8 0 1 1-28 0z"></path>
+              <path class="cable" d="M12 40C2 40 2 58 12 62"></path>
+              <circle class="copper" cx="14" cy="64" r="4.5"></circle>
+            </svg>
+          </div>
+        </div>
+        <h2>Wire</h2>
+        <span class="badge">Found</span>
+        <p class="readout" id="readout-wire">—</p>
+        <p class="saved-count"><span id="count-wire">0</span> saved</p>
+      </article>
+
+      <article class="emblem invalid wide" id="emblem-invalid">
+        <div class="ring">
+          <svg class="meter" viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="track" cx="60" cy="60" r="54"></circle>
+            <circle class="arc" cx="60" cy="60" r="54"></circle>
+          </svg>
+          <div class="glyph">
+            <svg viewBox="0 0 80 80" aria-hidden="true">
+              <circle cx="40" cy="40" r="26" fill="none" stroke="currentColor" stroke-width="5"></circle>
+              <path class="slash" d="M24 56 L56 24"></path>
+            </svg>
+          </div>
+        </div>
+        <div class="copy">
+          <h2>Invalid</h2>
+          <span class="badge">Rejected</span>
+          <p class="readout" id="readout-invalid">—</p>
+          <p class="saved-count">Not saved</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="library">
+      <div class="folder battery">
+        <h3>Battery photos</h3>
+        <ul id="list-battery"></ul>
+      </div>
+      <div class="folder wire">
+        <h3>Wire photos</h3>
+        <ul id="list-wire"></ul>
+      </div>
+    </section>
+  </main>
+  <script>
+    const ARC = 339.292;
+    const COPY = {
+      battery: "Battery in frame",
+      wire: "Wire in frame",
+      invalid: "Invalid",
+      none: "Watching the frame",
+      "too far": "Bring it closer",
+      starting: "Starting the camera"
+    };
+    const listSig = { "list-battery": null, "list-wire": null };
+
+    function setArc(emblem, amount) {
+      const arc = emblem.querySelector(".arc");
+      arc.style.strokeDasharray = String(ARC);
+      arc.style.strokeDashoffset = String(ARC * (1 - amount));
+    }
+
+    function renderList(id, files, emptyText) {
+      const sig = files.map((file) => file.name).join("|");
+      if (listSig[id] === sig) return;
+      listSig[id] = sig;
+      const list = document.getElementById(id);
+      list.replaceChildren();
+      if (!files.length) {
+        const item = document.createElement("li");
+        item.className = "empty";
+        item.textContent = emptyText;
+        list.append(item);
+        return;
+      }
+      for (const file of files) {
+        const item = document.createElement("li");
+        const link = document.createElement("a");
+        link.href = file.url;
+        link.target = "_blank";
+        const thumb = document.createElement("img");
+        thumb.className = "thumb";
+        thumb.src = file.url;
+        thumb.alt = file.name;
+        const name = document.createElement("div");
+        name.className = "name";
+        name.textContent = file.name;
+        link.append(thumb, name);
+        item.append(link);
+        list.append(item);
+      }
+    }
+
+    function paint(data) {
+      const label = data.label || "none";
+      const active = label === "battery" || label === "wire" || label === "invalid" ? label : "";
+      const confidence = active ? Math.max(0, Math.min(1, Number(data.confidence) || 0)) : 0;
+      document.body.dataset.active = active;
+      document.body.dataset.camera = data.camera_ok ? "on" : "off";
+
+      for (const kind of ["battery", "wire", "invalid"]) {
+        const emblem = document.getElementById("emblem-" + kind);
+        const lit = kind === active;
+        emblem.classList.toggle("lit", lit);
+        setArc(emblem, lit ? confidence : 0);
+        document.getElementById("readout-" + kind).textContent = lit
+          ? Math.round(confidence * 100) + "%"
+          : "—";
+        const count = document.getElementById("count-" + kind);
+        if (count) count.textContent = data.counts ? data.counts[kind] : 0;
+      }
+
+      const cells = document.querySelectorAll("#emblem-battery .cell");
+      const steps = [0.2, 0.5, 0.78];
+      cells.forEach((cell, index) => {
+        cell.classList.toggle("on", active === "battery" && confidence >= steps[index]);
+      });
+
+      const status = document.getElementById("status");
+      status.textContent = COPY[label] || label;
+      const detail = document.getElementById("detail");
+      detail.textContent = label === "invalid"
+        ? "Not a battery or a wire. Nothing was saved."
+        : active
+          ? Math.round(confidence * 100) + "% confidence"
+          : (label === "too far" ? "The object looks too small to classify." : "");
+      document.getElementById("live-label").textContent = data.camera_ok ? (active || "watching") : "camera off";
+
+      const saved = document.getElementById("saved");
+      saved.textContent = data.last_saved ? "Saved " + data.last_saved.split("/").pop() : "";
+      document.getElementById("error").textContent = data.error || "";
+
+      const recent = data.recent || { battery: [], wire: [] };
+      renderList("list-battery", recent.battery || [], "No battery photos yet");
+      renderList("list-wire", recent.wire || [], "No wire photos yet");
+    }
+
+    async function refresh() {
+      try {
+        const response = await fetch("/status");
+        if (!response.ok) throw new Error("Status unavailable");
+        paint(await response.json());
+      } catch (err) {
+        document.getElementById("error").textContent = "Could not read the classifier.";
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 500);
+  </script>
+</body>
+</html>

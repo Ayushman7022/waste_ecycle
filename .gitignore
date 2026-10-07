@@ -1,0 +1,16 @@
+# Installed libraries. Recreate with: python -m venv .venv
+.venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Photos saved by the webcam app
+captures/
+
+# Downloaded model weights (CLIP and YOLO-World). The first run fetches these.
+weights/
+*.pt
+*.pth
+*.onnx
+*.bin

@@ -1,0 +1,168 @@
+Waste Battery vs Wire Classifier
+Presentation script
+
+
+OPENING
+-------
+This project watches a webcam and sorts two kinds of waste: batteries and wires.
+It draws a box on the object, names it, and saves a photo when a new battery or
+wire stays in view. No custom dataset is used, and no model is trained on this
+computer. A pretrained CLIP model does the labeling.
+
+
+THE PROBLEM
+-----------
+Batteries and wires should not go into ordinary trash. They are small, they
+look different from each other, and a person sorting by hand has to look at
+each piece. This program is a small sorting station: hold an item up to the
+camera and the screen says what it is.
+
+
+WHAT YOU SEE
+------------
+There are two ways to run it.
+
+The browser app is the one to demonstrate. After the server starts, open
+http://127.0.0.1:8000 on the same computer. The page has three symbols:
+Battery, Wire, and Invalid. The live camera sits in the middle. Saved photos
+appear below, split into a battery folder and a wire folder.
+
+The other way is a desktop window:
+
+    .\.venv\Scripts\python.exe classify.py
+
+That window draws the same boxes and prints the label in the terminal.
+It does not save photos. Press q or Esc to close it.
+
+
+A LIVE DEMO
+-----------
+Start the server and wait until the terminal says the model is ready.
+The first run downloads the CLIP weights, about 350 MB. Later runs work offline.
+
+    .\.venv\Scripts\python.exe -m uvicorn webapp:app --host 127.0.0.1 --port 8000
+
+Then show objects one at a time:
+
+1. Hold a battery in the center, close to the camera, against a plain background.
+   The Battery symbol lights, the confidence ring fills, and a box appears
+   on the video.
+2. Keep it still for about half a second. One photo is saved under
+   captures\battery\. The file name includes the time and the confidence,
+   for example 20261005_121430_battery_0.84.jpg.
+3. Take the battery away until the page says "none" or "too far".
+4. Show a wire or cable the same way. The Wire symbol lights, and one photo
+   is saved under captures\wire\.
+5. Show something else, such as a cup, a phone, or a pen. The Invalid symbol
+   lights. Nothing is saved.
+
+Holding the same object does not create more photos. A new photo is taken only
+when a new battery or wire appears and stays steady. Closing the browser tab
+does not stop the camera. Stop the server with Ctrl+C.
+
+
+HOW A DECISION IS MADE
+----------------------
+Each frame goes through four steps. Classification runs about twice a second.
+
+1. Distance check.
+   A webcam cannot measure distance, so size in the picture stands in for it.
+   The program looks at the foreground edges. If the object covers less than
+   about a tenth of the frame, the label is "too far" and CLIP is not called.
+   With a typical webcam, that cutoff is roughly one metre for a small battery.
+   A plain background makes this check more reliable.
+
+2. Find a region.
+   OpenCV proposes where to look: a window in the center, covering 45 percent
+   of the frame, plus a box around the largest foreground shape and a box
+   around long straight lines, which helps with wires. YOLO-World can add extra
+   boxes if it is installed. The program still works when YOLO-World is absent.
+
+3. Label the crop.
+   CLIP compares each crop with four text ideas: a battery, a wire, some other
+   object, and an empty scene. The model was already trained to match photos
+   with sentences, so these prompts are enough. There is no local training step.
+   An empty desk or wall becomes "none". A household object that matches the
+   "other object" idea better than a battery or a wire becomes "invalid".
+   A battery or wire is accepted when it takes at least 60 percent of the
+   scores among battery, wire, and other object. A hand holding the item is
+   not treated as an empty background.
+
+4. Draw and save.
+   The winning region is drawn on the frame with its label and confidence.
+   Only "battery" and "wire" can be written to disk.
+
+
+THE LABELS
+----------
+    battery     a battery was found; the Battery symbol lights; a photo can be saved
+    wire        a wire or cable was found; the Wire symbol lights; a photo can be saved
+    invalid     something else was found; it is shown and left unsaved
+    none        the frame looks empty, or the match is too weak to accept
+    too far     the object looks too small, so it was skipped before labeling
+
+
+WHY THIS DESIGN
+---------------
+Training a detector would need hundreds of labeled photos of batteries and
+wires, from many angles, in many kinds of light. CLIP already understands
+everyday photo captions. The program only has to ask "does this crop look
+more like a battery, a wire, something else, or an empty surface?"
+
+OpenCV does the cheap work: finding edges, contours, and lines, and deciding
+whether the object is close enough. CLIP does the expensive work: naming the
+crop. That split keeps the demo usable on an ordinary PC. A GPU is used when
+one is available; otherwise the model runs on the CPU.
+
+The save rule is deliberate. Waste sorting should keep one record per item,
+not a burst of near-duplicate frames while someone holds the object still.
+
+
+WHAT TO SAY IF ASKED
+--------------------
+Where do the photos go?
+    captures\battery\ and captures\wire\ in the project folder.
+    The page lists the eight most recent photos in each folder.
+
+Why did it say "none"?
+    The object may be off-center, at a confusing angle, or not confident
+    enough. Move it into the middle and fill more of the center area.
+    The default confidence cutoff is 0.60. The desktop window can lower it
+    with --threshold 0.50.
+
+Why did it say "too far"?
+    Hold it closer. The desktop window can relax the cutoff with
+    --min-size 0.06, or turn the check off with --min-size 0.
+
+Why did a random object become a battery?
+    Raise the cutoff in the desktop window with --threshold 0.70.
+    Use a plain desk or wall behind the object.
+
+The wrong camera opened.
+    Stop the server and start it again with:
+
+        $env:CAMERA = "1"
+
+    Also close Zoom, Teams, or any other app using the webcam.
+
+The address does not open from a phone.
+    127.0.0.1 is the computer running the server. Open the page on that PC.
+
+
+LIMITS
+------
+This is a close-range sorter, meant for one object held up to the camera.
+It is not a bin that watches a whole room. Apparent size is only a stand-in
+for distance, so a tiny object up close and a large object far away can look
+similar. Busy backgrounds make the box less accurate. The model can miss an
+odd angle, and it will refuse a weak match rather than guess. Those frames
+show "none".
+
+
+CLOSING
+-------
+Show a battery, then a wire, then an ordinary object.
+The first two light their symbols and leave one photo each.
+The third lights Invalid and leaves the folders unchanged.
+That is the whole station: see the item, name it, and keep a record only
+when it is a battery or a wire.
