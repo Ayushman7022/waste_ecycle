@@ -1,149 +1,337 @@
-Waste Battery vs Wire Classifier
+E-cycle
 Presentation script
 
 
 OPENING
 -------
-This project watches a webcam and sorts two kinds of waste: batteries and wires.
-It draws a box on the object, names it, and saves a photo when a new battery or
-wire stays in view. No custom dataset is used, and no model is trained on this
-computer. A pretrained CLIP model does the labeling.
+E-cycle is a live webcam sorter for two kinds of electronic waste: batteries
+and wires. Hold one item in front of the camera. The page draws a box on it,
+names it, and saves one photo when a new battery or wire stays in view.
+
+The name on the page is E-cycle. Under that title the screen shows three
+symbols: Battery, Wire, and Invalid. The live camera sits in the middle.
+Saved photos appear below, split into a battery list and a wire list.
+
+There is no custom dataset and no training step on this computer. A pretrained
+CLIP model, ViT-B/32, does the naming. OpenCV finds where to look. An optional
+YOLO-World model can add extra boxes. The web page is a local FastAPI server.
 
 
 THE PROBLEM
 -----------
-Batteries and wires should not go into ordinary trash. They are small, they
-look different from each other, and a person sorting by hand has to look at
-each piece. This program is a small sorting station: hold an item up to the
-camera and the screen says what it is.
+Batteries and loose wires should stay out of ordinary trash. They are small,
+they look different from each other, and a person sorting by hand has to look
+at each piece. E-cycle is a close-range station for that look: one object,
+near the camera, against a plain background.
 
 
-WHAT YOU SEE
-------------
-There are two ways to run it.
+WHAT RUNS
+---------
+Five pieces do the work.
 
-The browser app is the one to demonstrate. After the server starts, open
-http://127.0.0.1:8000 on the same computer. The page has three symbols:
-Battery, Wire, and Invalid. The live camera sits in the middle. Saved photos
-appear below, split into a battery folder and a wire folder.
+1. The webcam. OpenCV opens it with the Windows DirectShow backend, then falls
+   back to the default backend if that fails. The device index is 0 unless
+   the environment variable CAMERA is set.
 
-The other way is a desktop window:
+2. The detector in detector.py. Every half second it proposes boxes and asks
+   the classifier to score each crop. Classification runs at 2 frames per
+   second so the page stays responsive on a normal PC.
 
-    .\.venv\Scripts\python.exe classify.py
+3. The classifier in classifier.py. This is OpenAI CLIP, loaded through the
+   open_clip library as ViT-B-32-quickgelu with the openai weights. Those
+   weights were trained with QuickGELU, so the matching architecture is
+   required. The first run downloads about 350 MB. Later runs use the local
+   copy and work offline. If a CUDA GPU is present the model runs on it.
+   Otherwise it runs on the CPU. The model is put in eval mode, so dropout
+   stays off and no weights are updated.
 
-That window draws the same boxes and prints the label in the terminal.
-It does not save photos. Press q or Esc to close it.
+4. The web app in webapp.py. FastAPI serves the page, a multipart JPEG stream
+   at /video, and a JSON status poll at /status every 500 milliseconds.
+   Stream frames are JPEG at quality 80.
 
-
-A LIVE DEMO
------------
-Start the server and wait until the terminal says the model is ready.
-The first run downloads the CLIP weights, about 350 MB. Later runs work offline.
-
-    .\.venv\Scripts\python.exe -m uvicorn webapp:app --host 127.0.0.1 --port 8000
-
-Then show objects one at a time:
-
-1. Hold a battery in the center, close to the camera, against a plain background.
-   The Battery symbol lights, the confidence ring fills, and a box appears
-   on the video.
-2. Keep it still for about half a second. One photo is saved under
-   captures\battery\. The file name includes the time and the confidence,
-   for example 20261005_121430_battery_0.84.jpg.
-3. Take the battery away until the page says "none" or "too far".
-4. Show a wire or cable the same way. The Wire symbol lights, and one photo
-   is saved under captures\wire\.
-5. Show something else, such as a cup, a phone, or a pen. The Invalid symbol
-   lights. Nothing is saved.
-
-Holding the same object does not create more photos. A new photo is taken only
-when a new battery or wire appears and stays steady. Closing the browser tab
-does not stop the camera. Stop the server with Ctrl+C.
+5. Optional YOLO-World. If ultralytics can load yolov8s-worldv2.pt, it is
+   given the text classes "battery", "AA battery", "electrical wire", and
+   "cable". Its boxes are extra proposals. E-cycle still runs when that file
+   is missing.
 
 
-HOW A DECISION IS MADE
-----------------------
-Each frame goes through four steps. Classification runs about twice a second.
+HOW DETECTION WORKS
+-------------------
+Detection answers "where is the object?" before CLIP answers "what is it?"
+A webcam frame is a full desk or wall. Scoring that whole picture would mix
+the object with the room. So OpenCV first cuts out a few candidate rectangles.
+CLIP only sees those crops.
 
-1. Distance check.
-   A webcam cannot measure distance, so size in the picture stands in for it.
-   The program looks at the foreground edges. If the object covers less than
-   about a tenth of the frame, the label is "too far" and CLIP is not called.
-   With a typical webcam, that cutoff is roughly one metre for a small battery.
-   A plain background makes this check more reliable.
+Step 1. Measure the foreground, and reject objects that look too far.
 
-2. Find a region.
-   OpenCV proposes where to look: a window in the center, covering 45 percent
-   of the frame, plus a box around the largest foreground shape and a box
-   around long straight lines, which helps with wires. YOLO-World can add extra
-   boxes if it is installed. The program still works when YOLO-World is absent.
+A webcam has no depth sensor, so apparent size stands in for distance. Two
+boxes are built before any label is chosen:
 
-3. Label the crop.
-   CLIP compares each crop with four text ideas: a battery, a wire, some other
-   object, and an empty scene. The model was already trained to match photos
-   with sentences, so these prompts are enough. There is no local training step.
-   An empty desk or wall becomes "none". A household object that matches the
-   "other object" idea better than a battery or a wire becomes "invalid".
-   A battery or wire is accepted when it takes at least 60 percent of the
-   scores among battery, wire, and other object. A hand holding the item is
-   not treated as an empty background.
+- A contour box. The frame is turned to gray, blurred with a 7 by 7 Gaussian,
+  and passed through a Canny edge detector with thresholds 40 and 140. The
+  edges are dilated twice with a 5 by 5 rectangle so broken outlines join up.
+  External contours are found. Any contour whose box is under 1 percent of the
+  frame, or over 95 percent, is dropped. The largest remaining box is kept.
+- A line box, aimed at wires. A second Canny pass uses thresholds 50 and 150.
+  Probabilistic Hough transform (HoughLinesP) looks for straight segments at
+  least 25 percent of the shorter frame side, with a vote threshold of 60 and
+  a gap of up to 20 pixels. The long segments are wrapped in one rectangle
+  with 12 pixels of padding.
 
-4. Draw and save.
-   The winning region is drawn on the frame with its label and confidence.
-   Only "battery" and "wire" can be written to disk.
+The distance gate then looks at those two boxes. The default minimum size is
+0.10, meaning 10 percent of the frame. The object counts as near enough when
+either box is at least that wide or that tall. Width and height are checked
+separately because a wire is long and thin: a cable across the frame can be
+only a few pixels thick and still be close. With a typical 60 degree webcam,
+a 10 cm object about one metre away covers roughly 12 percent of the frame,
+and a 5 cm battery about 6 percent, so 0.10 sits near a one metre cutoff.
+
+If neither box is large enough, detection stops. The reason string is
+"too far". CLIP is not called. The page says "Bring it closer" and draws a
+faint center rectangle so you can see where it is looking.
+
+Step 2. Propose regions.
+
+When the object is near enough, the proposal list is:
+
+- A fixed center window covering 45 percent of the width and 45 percent of
+  the height. The person is asked to hold the item there. A smaller window
+  keeps a distant room from being judged together with the object.
+- The contour box from step 1, when one exists.
+- The line box from step 1, when one exists.
+- Any boxes from YOLO-World, when that model loaded. Its confidence floor
+  for a proposal is 0.05. These boxes are candidates only. CLIP still decides
+  the label.
+
+Duplicate boxes are removed when their intersection-over-union is 0.80 or
+higher. Each surviving box is expanded by 6 percent on every side, clipped
+to the frame, and that padded crop is what CLIP sees. A box smaller than
+16 pixels on either side is discarded.
+
+Step 3. Score every crop, then keep one box per object.
+
+Each crop comes back as battery, wire, invalid, or background. Background
+crops are dropped. If any crop is a battery or a wire, those win and the
+invalid crops are set aside. Invalid is shown only when no battery or wire
+survived.
+
+Overlapping winners are merged. Boxes are sorted by confidence. A later box
+is treated as the same object when intersection-over-union is at least 0.50,
+or when at least 70 percent of the smaller box sits inside the other. If both
+boxes have the same label and the smaller one is still at least 4 percent of
+the larger one's area, the tighter box is kept. That is why a tight contour
+around a battery replaces the big center window instead of drawing two boxes
+on the same object.
+
+Step 4. Draw.
+
+Battery is drawn in orange, wire in green, invalid in red. The caption is the
+label plus the confidence to two decimals, for example "battery 0.84". When
+nothing survived, the center window is drawn in gray and the overlay text is
+"none" or "too far".
+
+
+HOW THE CLIP MODEL WORKS
+------------------------
+CLIP is a two-tower network. One tower reads an image. The other reads text.
+Both towers output a vector of the same length. Training, done by OpenAI on a
+very large set of internet photos and their captions, pulls the image vector
+and the matching caption vector toward each other and pushes unrelated pairs
+apart. After training, a new label is just a new sentence. That is zero-shot
+classification: E-cycle never shows CLIP a labeled battery dataset of its own.
+
+The image tower here is a Vision Transformer, ViT-B/32. "B" is the base size.
+"32" means the picture is cut into patches of 32 by 32 pixels. The tower used
+by these weights applies QuickGELU in its feed-forward layers. The image is
+converted from OpenCV's BGR order to RGB, wrapped as a PIL image, and passed
+through CLIP's own preprocess: resize, center crop, and the normalization
+CLIP was trained with. A crop smaller than 8 pixels on a side is rejected
+before the model runs.
+
+The text tower is a transformer tokenizer plus a text encoder. E-cycle does
+not ask one sentence. It asks four groups, and each group is three sentences
+so the class covers more than one wording.
+
+Battery:
+    "a close-up photo of a battery"
+    "a photo of an AA battery or lithium battery"
+    "a photo of a 9V battery or button cell"
+
+Wire:
+    "a close-up photo of an electrical wire"
+    "a photo of a cable or copper wire"
+    "a photo of a power cord or USB cable"
+
+Other object:
+    "a close-up photo of some other object"
+    "a photo of a cup, bottle, phone, book, box, or pen"
+    "a photo of a hand, tool, or household item that is not a battery or a wire"
+
+Empty scene:
+    "a photo of an empty table or desk with nothing on it"
+    "a photo of a blank wall, floor, or plain empty surface"
+    "a blurry photo of an empty room"
+
+At startup, and only at startup, each sentence is tokenized and encoded.
+Each vector is L2-normalized, so its length is 1 and the later dot product
+is cosine similarity. The three vectors in a group are averaged, and that
+average is normalized again. The result is four text vectors that stay in
+memory: battery, wire, other, empty. They are not recomputed per frame.
+
+For each crop, the image tower produces one vector, also L2-normalized.
+Similarity to the four text vectors is the dot product. CLIP's temperature
+scaling multiplies those similarities by 100, then softmax turns the four
+numbers into probabilities that add up to 1. Softmax means a strong match
+to one class suppresses the others.
+
+The decision rule in interpret_scores is stricter than "pick the biggest
+probability":
+
+1. Split the four probabilities into the three object bins (battery, wire,
+   other) and the empty bin.
+2. If the empty probability is higher than every object probability, the crop
+   is background. On the page that becomes "none" when no other crop wins.
+   An empty desk can therefore stay unlabeled.
+3. Otherwise the winning object is the largest of battery, wire, and other.
+   Its confidence is that probability divided by the sum of the three object
+   probabilities, so the reported percentage is the share inside the object
+   group, after empty has already lost.
+4. If "other" wins, the label is invalid. A cup, phone, pen, or similar
+   household item is supposed to land here. It is drawn and it is not saved.
+   This third class exists so those objects are not forced into battery or wire.
+5. If battery or wire wins but its share of the three object scores is below
+   0.60, the crop is background. The default threshold refuses a weak guess.
+   The desktop window can change it with --threshold.
+6. Otherwise the label is battery or wire, with that confidence.
+
+A hand in the frame is handled on purpose. The empty prompts describe a desk,
+a wall, or an empty room. A hand is closer to the "other object" prompts, or
+it is simply part of the crop around the battery or wire. Empty wins only when
+it beats every object bin, so a hand holding an item does not wipe the label
+out by itself.
+
+
+HOW A PHOTO IS SAVED
+--------------------
+The camera thread keeps the latest boxes and asks a small state machine,
+SaveGate, whether this frame is a new item.
+
+The label must stay the same for 0.5 seconds. A one-frame flicker does not
+save. When the stable label changes to battery or wire, that item is pending.
+A save also waits until 2 seconds have passed since the previous save. The
+pending flag is then cleared, so holding the same object does not write a
+second file. Take the object away until the page says "none" or "too far",
+then show the next one.
+
+The file is the drawn frame, not the raw camera image. The name is
+YYYYMMDD_HHMMSS_label_confidence.jpg, for example
+20261005_121430_battery_0.84.jpg. Battery files go to captures\battery\.
+Wire files go to captures\wire\. The folder is next to the program, created
+on startup. "none", "too far", and "invalid" are not written. The page shows
+the eight newest photos in each list and the total count on the Battery and
+Wire symbols.
 
 
 THE LABELS
 ----------
-    battery     a battery was found; the Battery symbol lights; a photo can be saved
-    wire        a wire or cable was found; the Wire symbol lights; a photo can be saved
-    invalid     something else was found; it is shown and left unsaved
-    none        the frame looks empty, or the match is too weak to accept
-    too far     the object looks too small, so it was skipped before labeling
+    battery     CLIP's battery vector won with confidence at least 0.60.
+                The Battery symbol lights. A photo can be saved.
+    wire        CLIP's wire vector won with confidence at least 0.60.
+                The Wire symbol lights. A photo can be saved.
+    invalid     The "other object" vector beat battery and wire.
+                The Invalid symbol lights. Nothing is saved.
+    none        No crop cleared the rules. The scene looked empty, or the
+                best battery or wire score was under 0.60.
+    too far     The contour and the line box were both under 10 percent of
+                the frame in width and in height. CLIP did not run.
 
 
-WHY THIS DESIGN
----------------
-Training a detector would need hundreds of labeled photos of batteries and
-wires, from many angles, in many kinds of light. CLIP already understands
-everyday photo captions. The program only has to ask "does this crop look
-more like a battery, a wire, something else, or an empty surface?"
+A LIVE DEMO
+-----------
+Start the server from the project folder and wait until the terminal says
+the model is ready.
 
-OpenCV does the cheap work: finding edges, contours, and lines, and deciding
-whether the object is close enough. CLIP does the expensive work: naming the
-crop. That split keeps the demo usable on an ordinary PC. A GPU is used when
-one is available; otherwise the model runs on the CPU.
+    .\.venv\Scripts\python.exe -m uvicorn webapp:app --host 127.0.0.1 --port 8000
 
-The save rule is deliberate. Waste sorting should keep one record per item,
-not a burst of near-duplicate frames while someone holds the object still.
+Open http://127.0.0.1:8000 on that same computer. The tab title and the
+heading both say E-cycle.
+
+1. Hold a battery in the center, close to the camera, on a plain desk.
+   The Battery ring fills with the confidence, and an orange box appears.
+2. Keep it still for about half a second. One photo appears under
+   Battery photos.
+3. Move it away until the status says "Watching the frame" or
+   "Bring it closer".
+4. Show a wire. The Wire symbol lights and one photo is saved.
+5. Show a cup, a phone, or a pen. Invalid lights. The folders stay as they are.
+
+The desktop window is the same detector without saving:
+
+    .\.venv\Scripts\python.exe classify.py
+
+Press q or Esc in that window to quit. Useful flags:
+
+    --camera 1         another webcam index
+    --threshold 0.70   demand a larger share of the object scores
+    --threshold 0.50   accept a weaker battery or wire match
+    --min-size 0.15    require the object to look closer
+    --min-size 0.06    allow a slightly smaller foreground
+    --min-size 0       turn the distance gate off
+    --det-conf 0.05    YOLO-World proposal threshold
+    --no-preview       print labels in the terminal only
+
+Closing the browser tab does not release the camera. Stop the server with
+Ctrl+C.
 
 
 WHAT TO SAY IF ASKED
 --------------------
+Did you train this model?
+    The weights are OpenAI's public CLIP checkpoint. E-cycle only supplies
+    the twelve prompt sentences and the decision rule. No battery or wire
+    photos were used to update the network.
+
+Why text prompts instead of class IDs?
+    CLIP's text tower is the classifier head. Changing a sentence changes
+    the class, which is why "9V battery" and "USB cable" can be added
+    without a new training run.
+
+What is the 0.84 on the box?
+    It is the winning object's share of the battery + wire + other softmax
+    mass, after the empty bin has lost. It is not a calibrated probability
+    from a dataset of this project.
+
 Where do the photos go?
-    captures\battery\ and captures\wire\ in the project folder.
-    The page lists the eight most recent photos in each folder.
+    captures\battery\ and captures\wire\ beside the code, on whatever
+    computer is running the server. The path follows the program folder.
+    The page lists the eight most recent files in each folder.
 
-Why did it say "none"?
-    The object may be off-center, at a confusing angle, or not confident
-    enough. Move it into the middle and fill more of the center area.
-    The default confidence cutoff is 0.60. The desktop window can lower it
-    with --threshold 0.50.
+Why "none"?
+    The crop lost to the empty prompts, or battery and wire were both under
+    the 0.60 share. Move the object into the center and fill more of the
+    gray rectangle. The desktop window can lower the cutoff with
+    --threshold 0.50.
 
-Why did it say "too far"?
-    Hold it closer. The desktop window can relax the cutoff with
-    --min-size 0.06, or turn the check off with --min-size 0.
+Why "too far"?
+    Both the contour box and the line box were smaller than 10 percent of
+    the frame. Hold it closer, or run the desktop window with --min-size 0.06.
 
 Why did a random object become a battery?
-    Raise the cutoff in the desktop window with --threshold 0.70.
-    Use a plain desk or wall behind the object.
+    Its crop was closer to the battery sentences than to the other-object
+    sentences, and the share was at least 0.60. Raise the cutoff with
+    --threshold 0.70 and use a plain background.
+
+Why is classification only twice a second?
+    ViT-B/32 on a CPU is the slow part. The video stream still updates every
+    frame, and the last boxes stay drawn until the next score arrives.
 
 The wrong camera opened.
-    Stop the server and start it again with:
+    Stop the server, then:
 
         $env:CAMERA = "1"
+        .\.venv\Scripts\python.exe -m uvicorn webapp:app --host 127.0.0.1 --port 8000
 
-    Also close Zoom, Teams, or any other app using the webcam.
+    Close Zoom, Teams, or any other app using the webcam.
 
 The address does not open from a phone.
     127.0.0.1 is the computer running the server. Open the page on that PC.
@@ -151,18 +339,24 @@ The address does not open from a phone.
 
 LIMITS
 ------
-This is a close-range sorter, meant for one object held up to the camera.
-It is not a bin that watches a whole room. Apparent size is only a stand-in
-for distance, so a tiny object up close and a large object far away can look
-similar. Busy backgrounds make the box less accurate. The model can miss an
-odd angle, and it will refuse a weak match rather than guess. Those frames
-show "none".
+E-cycle is built for one object held near the lens. The center window is 45
+percent of the frame, and the size gate is about a metre for a small battery.
+It does not watch a whole bin or a room.
+
+Size is only a stand-in for distance. A tiny object up close and a large
+object farther away can cross the same 10 percent line. A busy background
+creates extra contours, so the box can grab the wrong shape. An unusual angle
+can fall under 0.60 and show "none", because the rule refuses a weak match.
+YOLO-World, when present, only proposes boxes. A wrong YOLO box still has to
+pass CLIP.
 
 
 CLOSING
 -------
 Show a battery, then a wire, then an ordinary object.
+OpenCV decides where to crop and whether the object is close enough.
+CLIP's image tower and the four stored text vectors decide the name.
 The first two light their symbols and leave one photo each.
 The third lights Invalid and leaves the folders unchanged.
-That is the whole station: see the item, name it, and keep a record only
-when it is a battery or a wire.
+That is E-cycle: see the item, name it with a pretrained model, and keep a
+record only when it is a battery or a wire.
